@@ -1,0 +1,107 @@
+Student: BESLIU ANDREI-CORNEL
+Grupa: 321
+Seria: CD
+
+---=== Tema 1 - Router ===---
+
+---> Ce face?
+Am implementat urmatoarele: ARP, Forwarding, LPM eficient folosind trie, ICMP,
+                            Incremental Checksum per RFC1624.
+
+--> Cum face?
+Sunt suficiente comentarii in cod. O sa parcurg in linii mari logica.
+
+==<ARP>==
+Functionalitatea este impartita in 3 functii: arpRequest(), populateARPTable()
+si arpReply().
+
+- arpRequest se ocupa de formularea unui request atunci cand in procesul de
+rutare demarat de functia routePacket nu poate fi gasit MAC-ul aferent
+urmatorului hop. Creeaza un packet nou, adauga un header Ethernet si unul ARP
+si trimite mai departe request-ul.
+
+- populateARPTable este apelat atunci cand vine un reply destinat noua.
+Din packetul venit se extrage adresa MAC a sursei si este stocata in tabela
+ARP. De asemenea, se trimit toate packetele din coada.
+/ Personal Note /
+Aici personal eu nu as fi folosit o coada deoarece daca se intampla pana sa
+vina raspunsul ARP sa mai soseasca un packet catre alta destinatie pentru care
+trebuie facut ARP, ar trebui sa fie dropped. O lista simpla ar fi fost mai
+potrivita.
+/ End Personal Note /
+
+- arpReply altereaza request-ul ARP prin interschimbarea campurilor source si
+target, setarea opcode-ului la ARPOP_REPLY si completarea header-ului Ethernet.
+Trimite inapoi reply-ul.
+
+==<Forwarding>==
+routePacket se ocupa integral de aceasta functionalitate.
+
+Daca ttl-ul packetului este <= 1, routerul returneaza un ICMP Time Exceeded.
+
+Daca packetul nu poate fi rutat, routerul returneaza un ICMP Dest. Unreachable.
+
+Daca packetul este menit pentru noi si nu este un ICMP ECHO Request sau ARP
+Reply/Request, consideram ca a fost "procesat" de router (does nothing).
+
+In cazul fericit in care packetul poate fi rutat, se altereaza ttl-ul din
+header-ul ip, se recalculeaza checksum-ul, se schimba adresele MAC si trimitem
+pachetul mai departe.
+
+De notat faptul ca daca este nevoie sa trimitem un ARP Request pentru a afla
+adresa MAC a urmatorului hop, este facuta o copie a packetului original si pusa
+in queue pentru a putea fi trimisa atunci cand ajunge ARP Reply-ul.
+
+In procesul acesta de copiere, sunt pregatite ttl-ul, checksum-ul IP si adresa
+MAC din eth_hdr->ether_shost. Cand o sa fie primit ARP Reply-ul doar completez
+campul eth_hdr->ether_dhost si trimit packetul mai departe.
+
+==<LPM eficient>==
+Am folosit un direct trie.
+
+Citesc fiecare adresa din tabela de rutare si parcurg numarul de biti
+din adresa de retea corespunzatori mastii de retea (pentru un /24 o sa parcurg
+decat 24 de biti, ultimii clar fiind 0).
+
+Pentru 0 creez un nod la stanga, 1 un nod la dreapta.
+Atunci cand am terminat de parcurs bitii, marchez ultimul nod ca si o ruta.
+
+Cand doresc sa gasesc LPM, parcurg bitii adresei IP in aceiasi maniera pana
+cand trie-ul nu mai are copii pe ramura respectiva. Ultimul nod parcurs care
+era marcat reprezinta ruta cea mai potrivita.
+
+Pentru ficare ruta sunt necesare maxim 32 de accesari de memorie. Pentru tabela
+data ar putea fi reduse la 24 de accesari daca am considera ca toate adresele
+incep cu 192.x.x.x . Pentru o eficienta si mai mare ar fi nevoie de un trie
+dinamic.
+
+==<ICMP protocol>==
+Pentru ICMP echoReply() este evident ce face iar echoError() trebui
+sa primeasca si un cod de eroare pentru a stii cum sa completeze
+campul icmp_hdr->type.
+
+-echoReply() altereaza packetul ECHO primit, interschimba adresele IP, modifica
+headerul ICMP, recalculeaza checksum-ul, interschimba adresele MAC si trimite
+mai departe pachetul. In realitate router-ul ar face ARP ca sa afle unde sa
+raspunda... dar cred ca despic firul in patru.
+
+-echoError() creeaza un nou pachet, completeaza header-ele Ethernet, IP, ICMP
+si copiaza 64 de octeti din packetul IPv4 care a cauzat eroarea incepand de
+la headerul IP.
+
+Am ales sa copiez in intregime headerul IP din packetul care a cauzat eroarea
+pentru a usura nevoia de a completa toate campurile. Astfel trebuie doar sa
+completez adresele IP corecte, protocolul, ttl-ul, lungimea totala si sa
+recalculez checksum-ul.
+
+==<Fast Checksum - RFC1624>==
+Dupa cum indica absolut toate informatiile de pe net, daca sunt neclaritati,
+recomand cu caldura lectura RFC1624, RFC 1141 si RFC 1071. ;)
+
+
+==<ADDENDUM - 19/04/2022>==
+Quick fix in lungimile de date in echoError(). Sometimes unele teste pica
+daca este rulat programul in masina virtuala, nu cred ca este ceva gresit
+in cod, o sa o consider eroare legata de mediul de rulare.
+
+==<END README>==
